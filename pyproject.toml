@@ -1,0 +1,34 @@
+[project]
+name = "coding-exam-solution"
+version = "0.1.0"
+description = "Template for AI-assisted coding exams"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["hatchling>=1"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["solution"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.9", "ty>=0.0", "pre-commit>=4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: isolated unit tests",
+    "integration: integration tests crossing I/O or component boundaries",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.environment]
+python-version = "3.14"

@@ -1,0 +1,30 @@
+---
+description: Coding exam workflow — spec first, then tests, then implement
+alwaysApply: true
+---
+
+# Exam workflow
+
+Follow this order unless the user says otherwise:
+
+1. **Spec** — read or fill `SPEC.md` before changing code
+2. **Rename** — `solution/` → `<package>/`; update `pyproject.toml` and test imports; `uv sync --dev`
+3. **Tests** — `tests/unit/` from scenarios (positive and negative); `tests/integration/` for critical flows
+4. **Implement** — code in `<package>/` until **all unit and integration tests pass**
+5. **Check** — run `./scripts/check.sh` (lint, format, types, tests) before declaring done
+
+## Constraints
+
+- Do not declare implementation complete while any test is failing
+- Must haves before nice to haves; respect won't-do in `SPEC.md`
+- Tests import public API only: `from <package> import ...`
+- Tooling: uv, ruff, ty, pytest — run via `uv run` or `./scripts/check.sh`
+- Python 3.14+ native type hints; no `from __future__ import annotations`
+
+## Default prompts
+
+When the user pastes a new problem:
+
+- First response: update `SPEC.md` only
+- Next: unit tests (positive + negative)
+- Then: implementation until all tests pass
