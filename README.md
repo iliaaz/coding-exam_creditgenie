@@ -1,105 +1,169 @@
-# Python coding exam template
+# Order history API
 
-Fork this repo for each exam. Workflow: **spec → rename → tests → implement → check**.
+A minimal FastAPI service backed by SQLite for querying customer order history. Customers see a limited field set for their own orders; support agents can query any customer and see full order details.
 
-## Intended way of working
+Design details live in [`SPEC.md`](SPEC.md). Example response shape is in [`sample_output.json`](sample_output.json).
 
-### Setup
+## Requirements
+
+- Python 3.14+ (see `.python-version`)
+- [uv](https://docs.astral.sh/uv/) for environment and dependency management
+
+## Setup
 
 ```bash
 uv sync --dev
 ```
 
-Confirm the exam environment supports the Python version in `.python-version`. To change it, update `.python-version`, `requires-python` in `pyproject.toml`, and `[tool.ruff]` / `[tool.ty]` target versions, then run `uv sync --dev`.
-
-Optional: install pre-commit hooks after sync:
+Optional pre-commit hooks:
 
 ```bash
 uv run pre-commit install
 ```
 
-### Workflow
+## Project structure
 
-1. **Fork** — fork on GitHub and clone your fork.
-2. **Spec** — fill in `SPEC.md` from the exam prompt before writing code.
-3. **Rename** — rename the package and test files to match the problem (`snake_case`):
+```
+order_history/          # Application package
+  __init__.py           # Public API exports
+  api.py                # FastAPI app and GET /orders endpoint
+  main.py               # CLI entry point (uvicorn server)
+  service.py            # get_orders — orchestrates access, query, pagination
+  access.py             # Requester authorization (customer vs support agent)
+  repository.py         # SQLite queries and filters
+  database.py           # Schema creation and seed loading
+  seed_data.py          # Generated seed orders (500 customers, cust_42 has 847)
+  models.py             # Requester, OrderQuery, OrderListResponse
+  pagination.py         # Page tokens and total page calculation
+  exceptions.py         # AccessDeniedError, InvalidRequesterError
 
-   ```bash
-   git mv solution <package>
-   git mv tests/unit/test_unit.py tests/unit/test_<package>.py
-   git mv tests/integration/test_integration.py tests/integration/test_<package>_integration.py
-   ```
+tests/
+  unit/                 # Service-layer tests (positive and negative)
+  integration/          # HTTP + database end-to-end tests
+  conftest.py           # Fixtures, test clients, requester headers
 
-   Then update all of the following:
-
-   - [ ] `pyproject.toml` → `[tool.hatch.build.targets.wheel] packages = ["<package>"]`
-   - [ ] `pyproject.toml` → `[project] name = "<package>"` (optional but tidy)
-   - [ ] Test imports → `from <package> import ...`
-   - [ ] Run `uv sync --dev` to reinstall the package
-
-4. **Tests** — write unit tests in `tests/unit/` from `SPEC.md` scenarios (positive and negative cases). Add integration tests for critical flows. Run `uv run pytest -v`.
-5. **Implement** — code in `<package>/` until all tests pass. Export the public API from `__init__.py`. Split into modules (e.g. `models.py`, `service.py`) when the feature outgrows a single file.
-6. **Check** — run `./scripts/check.sh` before submitting.
-7. **Push** — optional; CI runs the same checks as `./scripts/check.sh`.
-
-Work in that order. Do not skip the spec or tests.
-
-### Time-boxing
-
-Under pressure, ship **must haves** first. Only pick up **nice to haves** if must haves and tests are green. Respect **won't do** — do not expand scope.
-
-## Project layout
-
-| Path | Purpose |
-|------|---------|
-| `SPEC.md` | Design spec |
-| `solution/` | Package placeholder — rename to `<package>/` |
-| `tests/unit/` | Unit tests — positive and negative cases |
-| `tests/integration/` | Integration tests — critical cross-boundary flows |
-| `tests/conftest.py` | Shared fixtures |
-| `tests/README.md` | How scenarios map to unit and integration tests |
-| `.vscode/settings.json` | Format on save, pytest discovery |
-| `.pre-commit-config.yaml` | Optional ruff hooks on commit |
-| `.python-version` | Python version for uv |
-| `pyproject.toml` | Project config and tool settings |
-| `scripts/check.sh` | Lint, format, type-check, and test |
-| `AGENTS.md` | AI assistant instructions |
-| `.cursor/rules/exam-workflow.mdc` | Always-on exam workflow for Cursor |
-| `.github/workflows/ci.yml` | CI quality gate |
-
-## Adding dependencies
-
-Runtime libraries (e.g. `pydantic`, `httpx`, `sqlalchemy`):
-
-```bash
-uv add <package>
+SPEC.md                 # Design spec and acceptance criteria
+sample_output.json      # Example order response for cust_42
+scripts/check.sh        # Lint, format, type-check, and test
 ```
 
-Dev-only tools:
+### How it fits together
+
+1. **`GET /orders`** (`api.py`) reads query params and requester headers, builds a `Requester` and `OrderQuery`, and calls `get_orders`.
+2. **`get_orders`** (`service.py`) checks access, queries SQLite, paginates results, and shapes the response by role.
+3. **`init_database`** (`database.py`) creates the `orders` table and loads rows from `seed_data.SEED_ORDERS`.
+4. On startup, **`main.py`** initializes the database (if empty) and runs uvicorn.
+
+### Requester headers
+
+The API uses headers as a stand-in for authentication (per spec, no real auth):
+
+| Header | Purpose |
+|--------|---------|
+| `X-Requester-Profile` | `customer` or `support_agent` |
+| `X-Requester-Customer-Id` | Required for customers — must match `customer_id` query param |
+| `X-Requester-Id` | Caller identity (e.g. `user_42`, `agent_1`) |
+
+Query parameters:
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `customer_id` | Yes | Whose orders to fetch |
+| `order_id` | No | Filter to a single order |
+| `status` | No | Filter by status (`completed`, `refunded`, etc.) |
+| `order_date` | No | Filter by order date (`YYYY-MM-DD`) |
+| `page_token` | No | Offset token from a previous response |
+
+Customers receive: `status`, `total`, `items`, `created_at`, `delivered_at`.  
+Support agents receive all fields, including `id`, `customer_id`, `refund_reason`, and `note`.
+
+## Launch the API
 
 ```bash
-uv add --dev <package>
+uv run order-history-api
 ```
 
-## Commands
+Defaults: `http://127.0.0.1:8000`, database at `orders.db`.
+
+Options:
+
+```bash
+uv run order-history-api --host 0.0.0.0 --port 8000 --db-path orders.db
+```
+
+### Example requests
+
+**Customer** — own orders, limited fields:
+
+```bash
+curl "http://127.0.0.1:8000/orders?customer_id=cust_42" \
+  -H "X-Requester-Profile: customer" \
+  -H "X-Requester-Customer-Id: cust_42" \
+  -H "X-Requester-Id: user_42"
+```
+
+**Support agent** — any customer, full fields, with filters:
+
+```bash
+curl "http://127.0.0.1:8000/orders?customer_id=cust_42&status=completed&order_date=2026-03-15" \
+  -H "X-Requester-Profile: support_agent" \
+  -H "X-Requester-Id: agent_1"
+```
+
+**Pagination** — use `next_page_token` from the response:
+
+```bash
+curl "http://127.0.0.1:8000/orders?customer_id=cust_42&page_token=50" \
+  -H "X-Requester-Profile: support_agent" \
+  -H "X-Requester-Id: agent_1"
+```
+
+A customer requesting another customer's data returns **403 Forbidden**.
+
+## Test
+
+```bash
+uv run pytest -v                  # all tests
+uv run pytest tests/unit -v       # unit tests only
+uv run pytest tests/integration -v  # integration tests only
+```
+
+Full quality gate (lint, format, types, tests):
+
+```bash
+./scripts/check.sh
+```
+
+Tests import the public API only:
+
+```python
+from order_history import get_orders, create_app, init_database
+```
+
+Integration tests use `fastapi.testclient.TestClient` against a temporary SQLite database seeded on each run.
+
+## Public API
+
+Exported from `order_history`:
+
+| Symbol | Description |
+|--------|-------------|
+| `get_orders(requester, query, db_path=...)` | Core service function |
+| `create_app(db_path=...)` | FastAPI application |
+| `init_database(db_path)` | Create schema and load seed data |
+| `Requester`, `OrderQuery`, `OrderListResponse` | Data types |
+| `RequesterRole` | `customer` / `support_agent` |
+| `AccessDeniedError`, `InvalidRequesterError` | Error types |
+
+## Tooling
+
+[uv](https://docs.astral.sh/uv/) · [ruff](https://docs.astral.sh/ruff/) · [ty](https://docs.astral.sh/ty/) · [pytest](https://docs.pytest.org/) · [FastAPI](https://fastapi.tiangolo.com/)
 
 | Command | Does |
 |---------|------|
 | `uv sync --dev` | Install dependencies |
-| `uv run pytest tests/unit -v` | Unit tests only |
-| `uv run pytest tests/integration -v` | Integration tests only |
-| `uv run pytest -v` | All tests |
-| `./scripts/check.sh` | Lint, format, type-check, and test |
-| `uv run pre-commit run --all-files` | Run pre-commit hooks manually |
-
-## Why some things look duplicated
-
-| Pair | Why both exist |
-|------|----------------|
-| `README.md` + `AGENTS.md` | README for you; AGENTS.md for the AI |
-| `./scripts/check.sh` + GitHub CI | Local check before submit; CI on push |
-| `./scripts/check.sh` + pre-commit | Full gate before submit; fast checks on commit |
-
-## Tooling
-
-[uv](https://docs.astral.sh/uv/) · [ruff](https://docs.astral.sh/ruff/) · [ty](https://docs.astral.sh/ty/) · [pytest](https://docs.pytest.org/) · [pre-commit](https://pre-commit.com/)
+| `uv run ruff check .` | Lint |
+| `uv run ruff format .` | Format |
+| `uv run ty check` | Type check |
+| `uv run pytest -v` | Run tests |
+| `./scripts/check.sh` | All of the above |
